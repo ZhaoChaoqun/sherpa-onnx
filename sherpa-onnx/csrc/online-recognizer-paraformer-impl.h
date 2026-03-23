@@ -352,6 +352,16 @@ class OnlineRecognizerParaformerImpl : public OnlineRecognizerImpl {
 
     alpha_cache[0] = integrate;
 
+    // is_final: tail flush — force-fire residual token if integrate is
+    // high enough (token was mostly accumulated, just shy of threshold).
+    if (is_final && integrate >= kCifTailFlushMinAlpha) {
+      acoustic_embedding.insert(acoustic_embedding.end(),
+                                initial_hidden.begin(), initial_hidden.end());
+      integrate = 0.0f;
+      std::fill(initial_hidden.begin(), initial_hidden.end(), 0.0f);
+      alpha_cache[0] = integrate;
+    }
+
     if (acoustic_embedding.empty()) {
       return;
     }
@@ -409,7 +419,8 @@ class OnlineRecognizerParaformerImpl : public OnlineRecognizerImpl {
 
     for (int32_t i = 0; i != num_tokens; ++i) {
       int32_t t = p_sample_ids[i];
-      if (t == 0) {
+      if (t == 0 || t == 1 || t == 2) {
+        // skip blank(0), sos(1), eos(2)
         continue;
       }
 
@@ -506,6 +517,11 @@ class OnlineRecognizerParaformerImpl : public OnlineRecognizerImpl {
 
   int32_t left_chunk_size_ = 5;
   int32_t right_chunk_size_ = 3;
+
+  // Minimum CIF residual alpha to force-fire a tail token on final chunk.
+  // Empirically tuned: below 0.6 causes hallucinated extra tokens;
+  // above 0.6 misses legitimate partial tokens.
+  static constexpr float kCifTailFlushMinAlpha = 0.6f;
 };
 
 }  // namespace sherpa_onnx
